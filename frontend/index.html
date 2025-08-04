@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Voice Avatar POC</title>
     <link rel="stylesheet" href="style.css">
+    
+    <!-- CRITICAL: Add LiveKit Client Library -->
+    <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.0.0/dist/livekit-client.umd.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -32,13 +35,14 @@
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M6 6h12v12H6z"/>
                     </svg>
+                    <span>STOP</span>
                 </button>
-                <div class="status" id="status">Ready to listen</div>
+                <div class="status" id="status">Initializing...</div>
             </div>
             
             <div class="conversation" id="conversation">
                 <div class="message bot-message">
-                    <strong>Avatar:</strong> Hello! I'm your AI assistant. Hold down the microphone button and speak to me!
+                    <strong>Avatar:</strong> Hello! I'm your AI assistant. Hold the microphone and speak to me!
                 </div>
             </div>
         </main>
@@ -46,4 +50,4 @@
     
     <script src="script.js"></script>
 </body>
-</html> <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🤖</text></svg>">
+</html>

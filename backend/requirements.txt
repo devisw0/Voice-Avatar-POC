@@ -1,9 +1,23 @@
-flask[async]==2.3.3
+# Core Flask Application
+flask==2.3.3
 flask-cors==4.0.0
-livekit==1.0.12
-openai==1.12.0
-elevenlabs==0.2.26
 python-dotenv==1.0.0
 requests==2.31.0
-websockets==11.0.3
-httpx==0.24.1 
+
+# AI Services
+openai==1.12.0
+elevenlabs==0.2.26
+
+# LiveKit Core - Updated to latest stable versions
+livekit-api>=0.6.0
+livekit-agents>=1.1.7
+
+# LiveKit Plugins - Using specific plugin installations
+livekit-plugins-openai>=1.2.0
+livekit-plugins-hedra>=1.2.1
+
+# Additional Dependencies for Image Processing
+Pillow>=10.0.0
+
+# Optional: For better audio processing
+numpy>=1.21.0 

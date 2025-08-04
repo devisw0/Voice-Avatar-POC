@@ -4,13 +4,13 @@ class VoiceAvatarApp {
         this.mediaRecorder = null;
         this.audioChunks = [];
         this.sessionId = this.generateSessionId();
-        this.hedraWebSocket = null;
-        this.isHedraConnected = false;
+        this.liveKitRoom = null;
+        this.avatarConnected = false;
         
         this.initializeElements();
         this.setupEventListeners();
         this.checkMicrophonePermission();
-        this.connectToHedraAvatar();
+        this.setupLiveKitConnection();
     }
     
     generateSessionId() {
@@ -29,12 +29,10 @@ class VoiceAvatarApp {
     }
     
     setupEventListeners() {
-        // Mouse events for desktop
         this.micButton.addEventListener('mousedown', () => this.startRecording());
         this.micButton.addEventListener('mouseup', () => this.stopRecording());
         this.micButton.addEventListener('mouseleave', () => this.stopRecording());
         
-        // Touch events for mobile
         this.micButton.addEventListener('touchstart', (e) => {
             e.preventDefault();
             this.startRecording();
@@ -44,11 +42,90 @@ class VoiceAvatarApp {
             this.stopRecording();
         });
         
-        // Prevent context menu on long press
         this.micButton.addEventListener('contextmenu', (e) => e.preventDefault());
-        
-        // Stop button for Hedra stream
-        this.stopButton.addEventListener('click', () => this.stopHedraStream());
+        this.stopButton.addEventListener('click', () => this.disconnectAvatar());
+    }
+    
+    async setupLiveKitConnection() {
+        try {
+            this.updateStatus('🔄 Setting up Live Avatar...');
+            
+            // Create LiveKit room with Hedra avatar
+            const response = await fetch('http://localhost:5001/create-hedra-room', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_id: this.sessionId })
+            });
+            
+            if (!response.ok) {
+                throw new Error('Failed to create room');
+            }
+            
+            const roomData = await response.json();
+            
+            if (roomData.success) {
+                // Connect to LiveKit room
+                await this.connectToLiveKitRoom(roomData);
+                this.updateStatus('✅ Live Avatar ready');
+            } else {
+                this.updateStatus('⚠️ Using audio fallback');
+            }
+            
+        } catch (error) {
+            console.error('❌ LiveKit setup failed:', error);
+            this.updateStatus('⚠️ Using audio fallback mode');
+        }
+    }
+    
+    async connectToLiveKitRoom(roomData) {
+        try {
+            // Check if LiveKit is available
+            if (typeof LiveKit === 'undefined') {
+                console.warn('⚠️ LiveKit not available, using audio fallback');
+                this.updateStatus('⚠️ Using audio fallback');
+                return;
+            }
+            
+            // Import LiveKit client
+            const { Room, RoomEvent, VideoTrack } = LiveKit;
+            
+            this.liveKitRoom = new Room();
+            
+            // Handle avatar video track
+            this.liveKitRoom.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
+                console.log('📹 Track subscribed:', participant.identity);
+                
+                // Check if this is the Hedra avatar participant
+                if (participant.identity.includes('hedra-avatar') && track instanceof VideoTrack) {
+                    console.log('🎬 Hedra avatar video track received');
+                    
+                    // Attach avatar video to the video element
+                    track.attach(this.hedraVideo);
+                    this.hedraVideo.style.display = 'block';
+                    this.avatarImage.style.display = 'none';
+                    this.avatarConnected = true;
+                    
+                    // Show stop button
+                    this.stopButton.style.display = 'block';
+                }
+            });
+            
+            this.liveKitRoom.on(RoomEvent.TrackUnsubscribed, (track, publication, participant) => {
+                if (participant.identity.includes('hedra-avatar')) {
+                    console.log('🎬 Hedra avatar disconnected');
+                    this.fallbackToImage();
+                }
+            });
+            
+            // Connect to the room
+            await this.liveKitRoom.connect(roomData.livekit_url, roomData.user_token);
+            
+            console.log('✅ Connected to LiveKit room');
+            
+        } catch (error) {
+            console.error('❌ Error connecting to LiveKit room:', error);
+            this.updateStatus('⚠️ Using audio fallback');
+        }
     }
     
     async checkMicrophonePermission() {
@@ -57,8 +134,7 @@ class VoiceAvatarApp {
             stream.getTracks().forEach(track => track.stop());
             this.updateStatus('Ready to listen');
         } catch (error) {
-            this.updateStatus('Microphone access denied');
-            console.error('Microphone permission denied:', error);
+            this.updateStatus('❌ Microphone access required');
         }
     }
     
@@ -68,31 +144,30 @@ class VoiceAvatarApp {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ 
                 audio: {
-                    sampleRate: 44100,      // Standard sample rate
-                    channelCount: 1,        // Mono for smaller files
+                    sampleRate: 44100,
+                    channelCount: 1,
                     echoCancellation: true,
                     noiseSuppression: true
                 }
             });
             
-            // FIXED: Better MIME type selection
             let mimeType = 'audio/wav';
             if (MediaRecorder.isTypeSupported('audio/wav')) {
                 mimeType = 'audio/wav';
             } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
                 mimeType = 'audio/mp4';
             } else {
-                mimeType = 'audio/webm';  // Last resort
+                mimeType = 'audio/webm';
             }
-            
-            console.log(`Using audio format: ${mimeType}`);
             
             this.mediaRecorder = new MediaRecorder(stream, { mimeType });
             this.audioChunks = [];
             this.isRecording = true;
             
             this.mediaRecorder.ondataavailable = (event) => {
-                this.audioChunks.push(event.data);
+                if (event.data.size > 0) {
+                    this.audioChunks.push(event.data);
+                }
             };
             
             this.mediaRecorder.onstop = () => {
@@ -102,11 +177,11 @@ class VoiceAvatarApp {
             
             this.mediaRecorder.start();
             this.updateUI(true);
-            this.updateStatus('Listening... Release to send');
+            this.updateStatus('🎤 Listening... Release to send');
             
         } catch (error) {
-            console.error('Error starting recording:', error);
-            this.updateStatus('Error accessing microphone');
+            console.error('❌ Error starting recording:', error);
+            this.updateStatus('❌ Cannot access microphone');
         }
     }
     
@@ -116,11 +191,16 @@ class VoiceAvatarApp {
         this.isRecording = false;
         this.mediaRecorder.stop();
         this.updateUI(false);
-        this.updateStatus('Processing...');
+        this.updateStatus('🔄 Processing...');
     }
     
     async processRecording() {
         try {
+            if (this.audioChunks.length === 0) {
+                this.updateStatus('❌ No audio recorded');
+                return;
+            }
+            
             const audioBlob = new Blob(this.audioChunks, { type: 'audio/wav' });
             
             const formData = new FormData();
@@ -133,39 +213,39 @@ class VoiceAvatarApp {
             });
             
             if (!response.ok) {
-                throw new Error('Server error');
+                throw new Error(`Server error: ${response.status}`);
             }
             
             const data = await response.json();
             
-            // Add user message to conversation
-            this.addMessage(data.transcript, 'user');
+            console.log('📥 Response received:', data);
             
-            // Add bot response to conversation
+            // Add messages to conversation
+            this.addMessage(data.transcript, 'user');
             this.addMessage(data.response, 'bot');
             
-            // Try to use Hedra Live Avatar first, fallback to audio
-            const hedraSuccess = await this.sendTextToHedraAvatar(data.response);
-            
-            if (!hedraSuccess && data.audio) {
+            // If avatar is connected, it will automatically speak
+            // Otherwise, use audio fallback
+            if (!this.avatarConnected && data.audio) {
                 await this.playAudioResponse(data.audio);
+            } else if (this.avatarConnected) {
+                this.updateStatus('🎬 Avatar speaking...');
+                // Avatar will speak automatically via LiveKit
             }
             
-            this.updateStatus('Ready to listen');
+            this.updateStatus('✅ Ready to listen');
             
         } catch (error) {
-            console.error('Error processing recording:', error);
+            console.error('❌ Error processing recording:', error);
             this.addMessage('Sorry, I had trouble processing that. Please try again.', 'bot');
-            this.updateStatus('Error - Ready to try again');
+            this.updateStatus('❌ Error - Try again');
         }
     }
     
     async playAudioResponse(audioBase64) {
         try {
-            // Show speaking indicator
             this.setSpeaking(true);
             
-            // Convert base64 to audio
             const audioData = atob(audioBase64);
             const audioArray = new Uint8Array(audioData.length);
             for (let i = 0; i < audioData.length; i++) {
@@ -182,17 +262,34 @@ class VoiceAvatarApp {
                 URL.revokeObjectURL(audioUrl);
             };
             
-            audio.onerror = () => {
-                this.setSpeaking(false);
-                URL.revokeObjectURL(audioUrl);
-            };
-            
             await audio.play();
             
         } catch (error) {
-            console.error('Error playing audio:', error);
+            console.error('❌ Error playing audio:', error);
             this.setSpeaking(false);
         }
+    }
+    
+    async disconnectAvatar() {
+        try {
+            if (this.liveKitRoom) {
+                await this.liveKitRoom.disconnect();
+            }
+            
+            this.fallbackToImage();
+            this.updateStatus('🛑 Avatar disconnected');
+            
+        } catch (error) {
+            console.error('❌ Error disconnecting avatar:', error);
+        }
+    }
+    
+    fallbackToImage() {
+        this.hedraVideo.style.display = 'none';
+        this.avatarImage.style.display = 'block';
+        this.avatarImage.src = 'assets/avatar-base.jpg';
+        this.stopButton.style.display = 'none';
+        this.avatarConnected = false;
     }
     
     addMessage(text, type) {
@@ -225,136 +322,16 @@ class VoiceAvatarApp {
             this.speakingIndicator.classList.remove('active');
         }
     }
-    
-    async connectToHedraAvatar() {
-        try {
-            const response = await fetch('http://localhost:5001/hedra/connect', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    avatar_id: 'default-avatar-id'
-                })
-            });
-            
-            if (response.ok) {
-                const data = await response.json();
-                if (data.success && data.stream_url) {
-                    this.setupHedraVideoStream(data.stream_url);
-                    this.isHedraConnected = true;
-                    this.updateStatus('Connected to live avatar');
-                } else {
-                    console.log('Hedra avatar not available, using fallback');
-                    this.isHedraConnected = false;
-                }
-            } else {
-                console.log('Hedra avatar not available, using fallback');
-                this.isHedraConnected = false;
-            }
-        } catch (error) {
-            console.log('Hedra service not available, using fallback');
-            this.isHedraConnected = false;
-        }
-    }
-    
-    setupHedraVideoStream(streamUrl) {
-        try {
-            // Check if streamUrl is valid
-            if (!streamUrl || streamUrl === 'undefined' || streamUrl === 'null') {
-                console.log('Invalid stream URL, falling back to image');
-                this.fallbackToImage();
-                return;
-            }
-            
-            // Set up video stream from Hedra
-            this.hedraVideo.srcObject = new MediaStream();
-            this.hedraVideo.style.display = 'block';
-            this.avatarImage.style.display = 'none';
-            
-            // Connect to Hedra WebSocket for real-time avatar control
-            this.hedraWebSocket = new WebSocket(streamUrl);
-            
-            this.hedraWebSocket.onopen = () => {
-                console.log('Connected to Hedra Live Avatar');
-            };
-            
-            this.hedraWebSocket.onmessage = (event) => {
-                const data = JSON.parse(event.data);
-                if (data.type === 'avatar_ready') {
-                    console.log('Avatar is ready for interaction');
-                }
-            };
-            
-            this.hedraWebSocket.onerror = (error) => {
-                console.error('Hedra WebSocket error:', error);
-                this.fallbackToImage();
-            };
-            
-        } catch (error) {
-            console.error('Error setting up Hedra video stream:', error);
-            this.fallbackToImage();
-        }
-    }
-    
-    fallbackToImage() {
-        this.hedraVideo.style.display = 'none';
-        this.avatarImage.style.display = 'block';
-        this.avatarImage.src = 'assets/avatar-base.jpg'; // Use your robot avatar
-        this.isHedraConnected = false;
-    }
-    
-    async sendTextToHedraAvatar(text) {
-        if (!this.isHedraConnected) {
-            return false;
-        }
-        
-        try {
-            // Show stop button when avatar starts speaking
-            this.stopButton.style.display = 'flex';
-            this.updateStatus('Avatar speaking... Click stop to end stream');
-            
-            const response = await fetch('http://localhost:5001/hedra/speak', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ text: text })
-            });
-            
-            if (response.ok) {
-                // Auto-hide stop button after estimated speaking time
-                setTimeout(() => {
-                    this.stopButton.style.display = 'none';
-                    this.updateStatus('Ready to listen');
-                }, Math.min(text.split(' ').length * 500, 30000)); // Max 30 seconds
-            }
-            
-            return response.ok;
-        } catch (error) {
-            console.error('Error sending text to Hedra avatar:', error);
-            return false;
-        }
-    }
-    
-    async stopHedraStream() {
-        try {
-            const response = await fetch('http://localhost:5001/hedra/disconnect', {
-                method: 'POST'
-            });
-            
-            if (response.ok) {
-                this.stopButton.style.display = 'none';
-                this.updateStatus('Stream stopped. Ready to listen');
-                this.fallbackToImage();
-            }
-        } catch (error) {
-            console.error('Error stopping Hedra stream:', error);
-        }
-    }
 }
 
-// Initialize the app when the page loads
+// Initialize app
 document.addEventListener('DOMContentLoaded', () => {
-    new VoiceAvatarApp();
+    window.voiceApp = new VoiceAvatarApp();
+});
+
+// Cleanup on page close
+window.addEventListener('beforeunload', async () => {
+    if (window.voiceApp && window.voiceApp.liveKitRoom) {
+        await window.voiceApp.liveKitRoom.disconnect();
+    }
 }); 
