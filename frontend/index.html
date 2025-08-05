@@ -5,9 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Voice Avatar POC</title>
     <link rel="stylesheet" href="style.css">
-    
-    <!-- CRITICAL: Add LiveKit Client Library -->
-    <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.0.0/dist/livekit-client.umd.min.js"></script>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
 </head>
 <body>
     <div class="container">
@@ -15,39 +13,72 @@
             <h1>Voice Avatar Assistant</h1>
             <p>Click and hold the microphone to speak with your AI avatar</p>
         </header>
-        
         <main>
             <div class="avatar-container">
                 <div class="avatar" id="avatar">
                     <img src="assets/avatar-base.jpg" alt="AI Avatar" id="avatar-image">
-                    <video id="hedra-video" style="display: none;" autoplay muted></video>
+                    <video id="hedra-video" style="display: none; width: 100%; height: 100%; object-fit: cover; border-radius: 50%;" autoplay playsinline></video>
                     <div class="speaking-indicator" id="speakingIndicator"></div>
                 </div>
             </div>
-            
             <div class="controls">
                 <button id="micButton" class="mic-button">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M12 2c1.1 0 2 .9 2 2v6c0 1.1-.9 2-2 2s-2-.9-2-2V4c0-1.1.9-2 2-2zm5.3 6c-.08 0-.15.02-.22.06-.1.06-.18.15-.22.26-.01.02-.01.04-.02.06V10c0 3-2.54 5.1-5.04 5.1S6.7 13 6.7 10H5c0 3.41 2.72 6.23 6 6.72V20h-2v2h6v-2h-2v-3.28c3.28-.49 6-3.31 6-6.72h-1.7z"/>
                     </svg>
                 </button>
-                <button id="stopButton" class="stop-button" style="display: none;">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M6 6h12v12H6z"/>
-                    </svg>
-                    <span>STOP</span>
-                </button>
+                <button id="stopButton" class="stop-button" style="display: none;">🛑 Stop Avatar</button>
                 <div class="status" id="status">Initializing...</div>
             </div>
-            
             <div class="conversation" id="conversation">
                 <div class="message bot-message">
-                    <strong>Avatar:</strong> Hello! I'm your AI assistant. Hold the microphone and speak to me!
+                    <strong>Avatar:</strong> Hello! I'm your AI assistant. Hold down the microphone button and speak to me!
                 </div>
             </div>
         </main>
     </div>
     
+    <!-- CRITICAL: Load LiveKit with proper error handling -->
+    <script>
+        window.LiveKitReady = false;
+        
+        function loadLiveKit() {
+            const script = document.createElement('script');
+            // CORRECT CDN URL from official docs
+            script.src = 'https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js';
+            script.onload = function() {
+                console.log('✅ LiveKit loaded successfully');
+                window.LiveKitReady = true;
+                if (window.voiceApp) {
+                    window.voiceApp.onLiveKitReady();
+                }
+            };
+            script.onerror = function() {
+                console.error('❌ Failed to load LiveKit from jsDelivr, trying cdnjs...');
+                // Try backup CDN
+                const backupScript = document.createElement('script');
+                backupScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/livekit-client/2.15.4/livekit-client.umd.min.js';
+                backupScript.onload = function() {
+                    console.log('✅ LiveKit loaded from backup CDN');
+                    window.LiveKitReady = true;
+                    if (window.voiceApp) {
+                        window.voiceApp.onLiveKitReady();
+                    }
+                };
+                backupScript.onerror = function() {
+                    console.error('❌ Failed to load LiveKit from any CDN');
+                    if (window.voiceApp) {
+                        window.voiceApp.onLiveKitFailed();
+                    }
+                };
+                document.head.appendChild(backupScript);
+            };
+            document.head.appendChild(script);
+        }
+        
+        // Load LiveKit immediately
+        loadLiveKit();
+    </script>
     <script src="script.js"></script>
 </body>
 </html>

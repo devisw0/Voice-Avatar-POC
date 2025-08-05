@@ -21,27 +21,21 @@ class HedraLiveAvatarService:
                 print("Hedra API key not configured or invalid, using fallback mode")
                 return False
             
-            # For now, simulate Hedra connection since the actual service might be unavailable
-            # This allows the app to work while we troubleshoot the real Hedra integration
-            print("Hedra Live Avatar service temporarily unavailable - using fallback mode")
-            self.is_connected = False  # Mark as not connected so it uses fallback
-            return False
-            
-            # TODO: Uncomment when Hedra service is confirmed working
             # Connect to Hedra Live Avatar WebSocket
-            # uri = f"{self.base_url}?avatar_id={avatar_id}&api_key={self.api_key}"
-            # self.websocket = await websockets.connect(uri)
-            # self.is_connected = True
+            uri = f"{self.base_url}?avatar_id={avatar_id}&api_key={self.api_key}"
+            self.websocket = await websockets.connect(uri)
+            self.is_connected = True
             
             # Send initial configuration
-            # await self.websocket.send(json.dumps({
-            #     "type": "config",
-            #     "avatar_id": avatar_id,
-            #     "quality": "medium",  # Lower quality to reduce costs
-            #     "fps": 24  # Lower FPS to reduce costs
-            # }))
+            await self.websocket.send(json.dumps({
+                "type": "config",
+                "avatar_id": avatar_id,
+                "quality": "medium",  # Lower quality to reduce costs
+                "fps": 24  # Lower FPS to reduce costs
+            }))
             
-            # return True
+            print("✅ Successfully connected to Hedra Live Avatar")
+            return True
             
         except Exception as e:
             print(f"Error connecting to Hedra Live Avatar: {e}")
@@ -78,8 +72,8 @@ class HedraLiveAvatarService:
     async def _auto_disconnect_after_speaking(self):
         """Automatically disconnect after speaking to save costs"""
         try:
-            # Wait for speaking to complete (estimate based on text length)
-            estimated_duration = min(len(text.split()) * 0.5, self.max_speaking_duration)
+            # Wait for speaking to complete (use fixed duration for safety)
+            estimated_duration = min(self.max_speaking_duration, 30)  # Max 30 seconds
             await asyncio.sleep(estimated_duration)
             
             # Disconnect to stop charging
@@ -139,4 +133,4 @@ class HedraLiveAvatarService:
             return False
         
         elapsed = time.time() - self.speaking_start_time
-        return elapsed < self.max_speaking_duration 
+        return elapsed < self.max_speaking_duration

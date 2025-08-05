@@ -101,20 +101,36 @@ def process_voice():
 
 @app.route('/create-hedra-room', methods=['POST'])
 def create_hedra_room():
-    """Create LiveKit room with Hedra avatar"""
+    """Create LiveKit room that the Hedra agent can join"""
     try:
         data = request.get_json() or {}
         session_id = data.get('session_id', str(uuid.uuid4()))
         
-        # Create LiveKit room
+        # Check if we have LiveKit credentials
+        if not all([Config.LIVEKIT_API_KEY, Config.LIVEKIT_API_SECRET, Config.LIVEKIT_URL]):
+            print("❌ Missing LiveKit credentials")
+            return jsonify({
+                "success": False,
+                "error": "LiveKit credentials not configured"
+            }), 400
+        
+        # Import LiveKit API
+        try:
+            from livekit.api import AccessToken, VideoGrants
+        except ImportError as e:
+            print(f"❌ LiveKit import error: {e}")
+            return jsonify({
+                "success": False,
+                "error": f"LiveKit not properly installed: {str(e)}"
+            }), 500
+        
+        # Create a room name - use consistent naming
         room_name = f"hedra-room-{session_id}"
         
-        # Generate access token for user
-        from livekit.api import AccessToken, VideoGrants
-        
+        # Generate access token for the frontend user
         token = AccessToken(Config.LIVEKIT_API_KEY, Config.LIVEKIT_API_SECRET) \
             .with_identity(f"user-{session_id}") \
-            .with_name("User") \
+            .with_name("Frontend User") \
             .with_grants(VideoGrants(
                 room_join=True,
                 room=room_name,
@@ -131,7 +147,9 @@ def create_hedra_room():
             "created_at": datetime.now().isoformat()
         }
         
-        print(f"🎬 Created Hedra room: {room_name}")
+        print(f"🎬 Created room credentials for: {room_name}")
+        print(f"🔗 LiveKit URL: {Config.LIVEKIT_URL}")
+        print(f"👤 User token generated for session: {session_id}")
         
         return jsonify({
             "success": True,
@@ -143,7 +161,11 @@ def create_hedra_room():
         
     except Exception as e:
         print(f"❌ Error creating Hedra room: {e}")
-        return jsonify({"error": str(e)}), 500
+        print(f"❌ Traceback: {traceback.format_exc()}")
+        return jsonify({
+            "success": False,
+            "error": f"Room creation failed: {str(e)}"
+        }), 500
 
 @app.route('/send-to-avatar', methods=['POST'])
 def send_to_avatar():
@@ -156,13 +178,12 @@ def send_to_avatar():
         if not session_id or session_id not in active_rooms:
             return jsonify({"error": "No active room for session"}), 400
         
-        # In a real implementation, you would send this via LiveKit Data API
-        # For now, we'll use the audio fallback
-        print(f"💬 Would send to avatar: {text}")
+        # The agent automatically responds to voice input through LiveKit
+        print(f"💬 Text for avatar: {text}")
         
         return jsonify({
             "success": True,
-            "message": "Text would be sent to avatar"
+            "message": "Agent will respond automatically to voice input"
         })
         
     except Exception as e:
@@ -192,11 +213,58 @@ def test_elevenlabs():
             "message": f"ElevenLabs test failed: {str(e)}"
         }), 500
 
+@app.route('/test-livekit', methods=['GET'])
+def test_livekit():
+    """Test LiveKit connection and configuration"""
+    try:
+        # Test LiveKit imports
+        from livekit.api import AccessToken, VideoGrants
+        
+        # Test token generation
+        test_token = AccessToken(Config.LIVEKIT_API_KEY, Config.LIVEKIT_API_SECRET) \
+            .with_identity("test-user") \
+            .with_name("Test User") \
+            .with_grants(VideoGrants(
+                room_join=True,
+                room="test-room",
+                can_publish=True,
+                can_subscribe=True
+            ))
+        
+        jwt_token = test_token.to_jwt()
+        
+        return jsonify({
+            "status": "success",
+            "message": "LiveKit working correctly",
+            "livekit_url": Config.LIVEKIT_URL,
+            "token_generated": bool(jwt_token)
+        })
+        
+    except ImportError as e:
+        return jsonify({
+            "status": "error",
+            "message": f"LiveKit import failed: {str(e)}"
+        }), 500
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": f"LiveKit test failed: {str(e)}"
+        }), 500
+
 if __name__ == '__main__':
     print("🚀 Starting Voice Avatar POC server...")
     print(f"🔑 OpenAI Key: {'✅ Set' if Config.OPENAI_API_KEY else '❌ Missing'}")
     print(f"🔑 ElevenLabs Key: {'✅ Set' if Config.ELEVENLABS_API_KEY else '❌ Missing'}")
     print(f"🔑 Hedra Key: {'✅ Set' if Config.HEDRA_API_KEY else '❌ Missing'}")
     print(f"🔑 LiveKit URL: {'✅ Set' if Config.LIVEKIT_URL else '❌ Missing'}")
+    print(f"🔑 LiveKit API Key: {'✅ Set' if Config.LIVEKIT_API_KEY else '❌ Missing'}")
+    
+    # Test LiveKit configuration on startup
+    try:
+        from livekit.api import AccessToken, VideoGrants
+        print("✅ LiveKit API imports successful")
+    except ImportError as e:
+        print(f"❌ LiveKit API import failed: {e}")
+        print("💡 Try: pip install livekit-api")
     
     app.run(debug=Config.DEBUG, host='0.0.0.0', port=5001) 

@@ -91,18 +91,9 @@ main {
 }
 
 @keyframes pulse {
-    0% {
-        transform: scale(1);
-        opacity: 1;
-    }
-    50% {
-        transform: scale(1.1);
-        opacity: 0.7;
-    }
-    100% {
-        transform: scale(1);
-        opacity: 1;
-    }
+    0% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.1); opacity: 0.7; }
+    100% { transform: scale(1); opacity: 1; }
 }
 
 .controls {
@@ -135,39 +126,36 @@ main {
     box-shadow: 0 15px 30px rgba(255, 71, 87, 0.4);
 }
 
-.mic-button:active,
-.mic-button.recording {
+.mic-button:active, .mic-button.recording {
     background: #4CAF50;
     animation: pulse-recording 1s infinite;
-}
-
-.stop-button {
-    width: 60px;
-    height: 60px;
-    border-radius: 50%;
-    border: none;
-    background: #ff6b35;
-    color: white;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 24px;
-    transition: all 0.3s ease;
-    box-shadow: 0 10px 20px rgba(255, 107, 53, 0.3);
-    margin-left: 15px;
-}
-
-.stop-button:hover {
-    background: #ff5722;
-    transform: translateY(-2px);
-    box-shadow: 0 15px 30px rgba(255, 107, 53, 0.4);
 }
 
 @keyframes pulse-recording {
     0% { transform: scale(1); }
     50% { transform: scale(1.1); }
     100% { transform: scale(1); }
+}
+
+.stop-button {
+    width: 120px;
+    height: 40px;
+    border-radius: 20px;
+    border: none;
+    background: #e74c3c;
+    color: white;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: bold;
+    transition: all 0.3s ease;
+    box-shadow: 0 5px 15px rgba(231, 76, 60, 0.3);
+    margin-bottom: 15px;
+}
+
+.stop-button:hover {
+    background: #c0392b;
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(231, 76, 60, 0.4);
 }
 
 .status {
@@ -237,21 +225,17 @@ main {
     .container {
         padding: 10px;
     }
-    
     header h1 {
         font-size: 2rem;
     }
-    
     .avatar {
         width: 150px;
         height: 150px;
     }
-    
     .mic-button {
         width: 60px;
         height: 60px;
     }
-    
     .conversation {
         max-height: 300px;
     }

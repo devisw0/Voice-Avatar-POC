@@ -6,11 +6,18 @@ class VoiceAvatarApp {
         this.sessionId = this.generateSessionId();
         this.liveKitRoom = null;
         this.avatarConnected = false;
+        this.liveKitReady = false;
         
         this.initializeElements();
         this.setupEventListeners();
         this.checkMicrophonePermission();
-        this.setupLiveKitConnection();
+        
+        // Check if LiveKit is already loaded
+        if (window.LiveKitReady && typeof LiveKit !== 'undefined') {
+            this.onLiveKitReady();
+        } else {
+            this.updateStatus('🔄 Loading LiveKit...');
+        }
     }
     
     generateSessionId() {
@@ -46,85 +53,259 @@ class VoiceAvatarApp {
         this.stopButton.addEventListener('click', () => this.disconnectAvatar());
     }
     
+    onLiveKitReady() {
+        console.log('🎬 LiveKit is ready, setting up connection...');
+        this.liveKitReady = true;
+        this.setupLiveKitConnection();
+    }
+    
+    onLiveKitFailed() {
+        console.log('❌ LiveKit failed to load, using audio fallback');
+        this.updateStatus('⚠️ Using audio fallback mode');
+    }
+    
     async setupLiveKitConnection() {
+        console.log('🔧 DEBUG: setupLiveKitConnection started');
+        console.log('🔧 DEBUG: window.LiveKitReady:', window.LiveKitReady);
+        console.log('🔧 DEBUG: typeof LiveKit:', typeof LiveKit);
+        console.log('🔧 DEBUG: typeof window.LiveKit:', typeof window.LiveKit);
+        console.log('🔧 DEBUG: LiveKit object:', window.LiveKit);
+        
+        // Check what LiveKit-related objects exist
+        const liveKitProps = Object.keys(window).filter(key => key.toLowerCase().includes('livekit'));
+        console.log('🔧 DEBUG: LiveKit-related window properties:', liveKitProps);
+        
+        // Check for specific LiveKit objects that might exist
+        console.log('🔧 DEBUG: window.Room:', typeof window.Room);
+        console.log('🔧 DEBUG: window.RoomEvent:', typeof window.RoomEvent);
+        console.log('🔧 DEBUG: window.Track:', typeof window.Track);
+        
+        // Let's try a different approach - see if we can find the LiveKit objects
+        let LiveKitLib = null;
+        if (typeof LiveKit !== 'undefined') {
+            LiveKitLib = LiveKit;
+        } else if (typeof window.LiveKit !== 'undefined') {
+            LiveKitLib = window.LiveKit;
+        } else if (typeof window.LivekitClient !== 'undefined') {
+            // Found it! It's LivekitClient with lowercase 'k'
+            LiveKitLib = window.LivekitClient;
+        } else if (typeof window.Room !== 'undefined') {
+            // Maybe LiveKit exposes individual components directly
+            LiveKitLib = {
+                Room: window.Room,
+                RoomEvent: window.RoomEvent,
+                Track: window.Track
+            };
+        }
+        
+        console.log('🔧 DEBUG: LiveKitLib found:', !!LiveKitLib);
+        console.log('🔧 DEBUG: LiveKitLib object:', LiveKitLib);
+        
+        if (!this.liveKitReady || !LiveKitLib) {
+            console.log('❌ DEBUG: LiveKit not ready or undefined');
+            this.updateStatus('⚠️ LiveKit not available');
+            return;
+        }
+        
         try {
-            this.updateStatus('🔄 Setting up Live Avatar...');
+            this.updateStatus('🔄 Connecting to Live Avatar...');
+            console.log('🔧 DEBUG: About to fetch room credentials');
             
-            // Create LiveKit room with Hedra avatar
+            // Get room credentials from Flask backend
             const response = await fetch('http://localhost:5001/create-hedra-room', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ session_id: this.sessionId })
             });
             
+            console.log('🔧 DEBUG: Fetch response status:', response.status);
+            console.log('🔧 DEBUG: Fetch response ok:', response.ok);
+            
             if (!response.ok) {
-                throw new Error('Failed to create room');
+                const errorData = await response.json();
+                console.log('❌ DEBUG: Response not ok, error data:', errorData);
+                throw new Error(`Failed to create room: ${response.status} - ${errorData.error || 'Unknown error'}`);
             }
             
             const roomData = await response.json();
+            console.log('🔧 DEBUG: Room data received:', roomData);
             
             if (roomData.success) {
-                // Connect to LiveKit room
+                console.log('🎬 Room data received:', roomData);
                 await this.connectToLiveKitRoom(roomData);
-                this.updateStatus('✅ Live Avatar ready');
             } else {
-                this.updateStatus('⚠️ Using audio fallback');
+                console.log('❌ DEBUG: Room data success=false:', roomData);
+                throw new Error(`Room creation failed: ${roomData.error || 'Unknown error'}`);
             }
             
         } catch (error) {
-            console.error('❌ LiveKit setup failed:', error);
+            console.error('❌ DEBUG: LiveKit setup failed with error:', error);
+            console.error('❌ DEBUG: Error stack:', error.stack);
             this.updateStatus('⚠️ Using audio fallback mode');
         }
     }
     
     async connectToLiveKitRoom(roomData) {
+        console.log('🔧 DEBUG: connectToLiveKitRoom started with data:', roomData);
+        
         try {
-            // Check if LiveKit is available
-            if (typeof LiveKit === 'undefined') {
-                console.warn('⚠️ LiveKit not available, using audio fallback');
-                this.updateStatus('⚠️ Using audio fallback');
-                return;
+            // Try to access LiveKit from global scope or window
+            let LiveKitLib = null;
+            if (typeof LiveKit !== 'undefined') {
+                LiveKitLib = LiveKit;
+            } else if (typeof window.LiveKit !== 'undefined') {
+                LiveKitLib = window.LiveKit;
+            } else if (typeof window.LivekitClient !== 'undefined') {
+                // Found it! It's LivekitClient with lowercase 'k'
+                LiveKitLib = window.LivekitClient;
+            } else if (typeof window.Room !== 'undefined') {
+                // Maybe LiveKit exposes individual components directly
+                LiveKitLib = {
+                    Room: window.Room,
+                    RoomEvent: window.RoomEvent,
+                    Track: window.Track
+                };
             }
             
-            // Import LiveKit client
-            const { Room, RoomEvent, VideoTrack } = LiveKit;
+            console.log('🔧 DEBUG: LiveKitLib found:', !!LiveKitLib);
             
-            this.liveKitRoom = new Room();
+            if (!LiveKitLib) {
+                throw new Error('LiveKit library not found in global scope');
+            }
             
-            // Handle avatar video track
-            this.liveKitRoom.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
-                console.log('📹 Track subscribed:', participant.identity);
+            const { Room, RoomEvent, Track } = LiveKitLib;
+            console.log('🔧 DEBUG: LiveKit destructured successfully');
+            console.log('🔧 DEBUG: Room:', !!Room, 'RoomEvent:', !!RoomEvent, 'Track:', !!Track);
+            
+            this.liveKitRoom = new Room({
+                adaptiveStream: true,
+                dynacast: true,
+            });
+            console.log('🔧 DEBUG: LiveKit Room created');
+            
+            // Set up event listeners BEFORE connecting
+            this.liveKitRoom.on(RoomEvent.Connected, () => {
+                console.log('✅ Connected to LiveKit room:', roomData.room_name);
+                this.updateStatus('🎬 Connected - waiting for avatar...');
+            });
+            
+            this.liveKitRoom.on(RoomEvent.Disconnected, (reason) => {
+                console.log('❌ Disconnected from room:', reason);
+                this.fallbackToImage();
+                this.updateStatus('🛑 Disconnected from avatar');
+            });
+            
+            this.liveKitRoom.on(RoomEvent.ParticipantConnected, (participant) => {
+                console.log('👤 Participant connected:', participant.identity);
                 
-                // Check if this is the Hedra avatar participant
-                if (participant.identity.includes('hedra-avatar') && track instanceof VideoTrack) {
-                    console.log('🎬 Hedra avatar video track received');
+                // Check if this is the agent
+                if (participant.identity.includes('agent') || participant.identity.includes('hedra')) {
+                    console.log('🎬 Hedra agent detected!');
+                    this.updateStatus('🎬 Avatar agent connected!');
+                }
+            });
+            
+            this.liveKitRoom.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
+                console.log('📹 Track subscribed:', {
+                    participant: participant.identity,
+                    trackSid: track.sid,
+                    kind: track.kind,
+                    source: track.source,
+                    enabled: track.enabled,
+                    muted: track.muted
+                });
+                
+                // Check if this is a video track from the agent
+                if (track.kind === Track.Kind.Video && 
+                    (participant.identity.includes('agent') || participant.identity.includes('hedra'))) {
                     
-                    // Attach avatar video to the video element
-                    track.attach(this.hedraVideo);
-                    this.hedraVideo.style.display = 'block';
-                    this.avatarImage.style.display = 'none';
-                    this.avatarConnected = true;
+                    console.log('🎥 Avatar video track received!');
+                    console.log('📋 Track details:', {
+                        dimensions: track.dimensions,
+                        source: track.source,
+                        sid: track.sid
+                    });
                     
-                    // Show stop button
-                    this.stopButton.style.display = 'block';
+                    try {
+                        // Attach the track to a video element
+                        const videoElement = track.attach();
+                        
+                        // Configure video element
+                        videoElement.id = 'hedra-video-live';
+                        videoElement.style.cssText = `
+                            display: block !important;
+                            width: 100%;
+                            height: 100%;
+                            object-fit: cover;
+                            border-radius: 50%;
+                            position: absolute;
+                            top: 0;
+                            left: 0;
+                        `;
+                        videoElement.autoplay = true;
+                        videoElement.playsInline = true;
+                        videoElement.muted = false;
+                        
+                        // Add event listeners for debugging
+                        videoElement.onloadedmetadata = () => {
+                            console.log('✅ Video metadata loaded');
+                            console.log('📐 Video dimensions:', videoElement.videoWidth, 'x', videoElement.videoHeight);
+                        };
+                        
+                        videoElement.onplay = () => {
+                            console.log('▶️ Video started playing');
+                        };
+                        
+                        videoElement.onerror = (e) => {
+                            console.error('❌ Video error:', e);
+                        };
+                        
+                        // Replace the static image
+                        this.avatarImage.style.display = 'none';
+                        
+                        // Remove existing video if any
+                        const existingVideo = this.avatar.querySelector('#hedra-video-live');
+                        if (existingVideo) {
+                            existingVideo.remove();
+                        }
+                        
+                        // Add new video
+                        this.avatar.appendChild(videoElement);
+                        this.hedraVideo = videoElement;
+                        
+                        this.avatarConnected = true;
+                        this.stopButton.style.display = 'block';
+                        this.updateStatus('🎬 Live Avatar active!');
+                        
+                        console.log('✅ Avatar video connected successfully!');
+                        
+                    } catch (error) {
+                        console.error('❌ Error attaching video track:', error);
+                    }
                 }
             });
             
             this.liveKitRoom.on(RoomEvent.TrackUnsubscribed, (track, publication, participant) => {
-                if (participant.identity.includes('hedra-avatar')) {
-                    console.log('🎬 Hedra avatar disconnected');
+                if (participant.identity.includes('agent') || participant.identity.includes('hedra')) {
+                    console.log('🎬 Hedra avatar track disconnected');
                     this.fallbackToImage();
                 }
             });
             
             // Connect to the room
+            console.log('🔗 DEBUG: About to connect to LiveKit room...', {
+                url: roomData.livekit_url,
+                room: roomData.room_name
+            });
+            
             await this.liveKitRoom.connect(roomData.livekit_url, roomData.user_token);
             
-            console.log('✅ Connected to LiveKit room');
+            console.log('✅ DEBUG: LiveKit room connection established');
             
         } catch (error) {
-            console.error('❌ Error connecting to LiveKit room:', error);
-            this.updateStatus('⚠️ Using audio fallback');
+            console.error('❌ DEBUG: Error in connectToLiveKitRoom:', error);
+            console.error('❌ DEBUG: Error stack:', error.stack);
+            this.updateStatus('⚠️ Connection failed - using audio fallback');
         }
     }
     
@@ -224,16 +405,23 @@ class VoiceAvatarApp {
             this.addMessage(data.transcript, 'user');
             this.addMessage(data.response, 'bot');
             
-            // If avatar is connected, it will automatically speak
+            // If avatar is connected, the agent will automatically speak
             // Otherwise, use audio fallback
-            if (!this.avatarConnected && data.audio) {
-                await this.playAudioResponse(data.audio);
-            } else if (this.avatarConnected) {
+            if (this.avatarConnected) {
                 this.updateStatus('🎬 Avatar speaking...');
-                // Avatar will speak automatically via LiveKit
+                this.setSpeaking(true);
+                
+                // Estimate speaking duration and reset indicator
+                const estimatedDuration = Math.max(data.response.split(' ').length * 0.6, 2); // minimum 2 seconds
+                setTimeout(() => {
+                    this.setSpeaking(false);
+                    this.updateStatus('✅ Ready to listen');
+                }, estimatedDuration * 1000);
+            } else if (data.audio) {
+                await this.playAudioResponse(data.audio);
+            } else {
+                this.updateStatus('✅ Ready to listen');
             }
-            
-            this.updateStatus('✅ Ready to listen');
             
         } catch (error) {
             console.error('❌ Error processing recording:', error);
@@ -245,6 +433,7 @@ class VoiceAvatarApp {
     async playAudioResponse(audioBase64) {
         try {
             this.setSpeaking(true);
+            this.updateStatus('🔊 Playing audio response...');
             
             const audioData = atob(audioBase64);
             const audioArray = new Uint8Array(audioData.length);
@@ -260,6 +449,13 @@ class VoiceAvatarApp {
             audio.onended = () => {
                 this.setSpeaking(false);
                 URL.revokeObjectURL(audioUrl);
+                this.updateStatus('✅ Ready to listen');
+            };
+            
+            audio.onerror = () => {
+                this.setSpeaking(false);
+                URL.revokeObjectURL(audioUrl);
+                this.updateStatus('❌ Audio playback failed');
             };
             
             await audio.play();
@@ -267,6 +463,7 @@ class VoiceAvatarApp {
         } catch (error) {
             console.error('❌ Error playing audio:', error);
             this.setSpeaking(false);
+            this.updateStatus('❌ Audio playback error');
         }
     }
     
@@ -285,9 +482,13 @@ class VoiceAvatarApp {
     }
     
     fallbackToImage() {
-        this.hedraVideo.style.display = 'none';
+        // Show static image
         this.avatarImage.style.display = 'block';
-        this.avatarImage.src = 'assets/avatar-base.jpg';
+        
+        // Hide video and stop button
+        if (this.hedraVideo) {
+            this.hedraVideo.style.display = 'none';
+        }
         this.stopButton.style.display = 'none';
         this.avatarConnected = false;
     }
@@ -313,6 +514,7 @@ class VoiceAvatarApp {
     
     updateStatus(text) {
         this.status.textContent = text;
+        console.log('Status:', text);
     }
     
     setSpeaking(speaking) {
@@ -334,4 +536,4 @@ window.addEventListener('beforeunload', async () => {
     if (window.voiceApp && window.voiceApp.liveKitRoom) {
         await window.voiceApp.liveKitRoom.disconnect();
     }
-}); 
+});
