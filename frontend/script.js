@@ -7,16 +7,17 @@ class VoiceAvatarApp {
         this.liveKitRoom = null;
         this.avatarConnected = false;
         this.liveKitReady = false;
-        
+        this.liveKitInitialized = false; // Track if LiveKit has been initialized
+       
         this.initializeElements();
         this.setupEventListeners();
         this.checkMicrophonePermission();
         
-        // Check if LiveKit is already loaded
+        // Initialize LiveKit immediately, don't wait for user gesture
         if (window.LiveKitReady && typeof LiveKit !== 'undefined') {
             this.onLiveKitReady();
         } else {
-            this.updateStatus('🔄 Loading LiveKit...');
+            this.updateStatus('Ready to listen');
         }
     }
     
@@ -36,13 +37,14 @@ class VoiceAvatarApp {
     }
     
     setupEventListeners() {
-        this.micButton.addEventListener('mousedown', () => this.startRecording());
+        // Modified to handle LiveKit initialization on first click
+        this.micButton.addEventListener('mousedown', () => this.handleMicrophonePress());
         this.micButton.addEventListener('mouseup', () => this.stopRecording());
         this.micButton.addEventListener('mouseleave', () => this.stopRecording());
         
         this.micButton.addEventListener('touchstart', (e) => {
             e.preventDefault();
-            this.startRecording();
+            this.handleMicrophonePress();
         });
         this.micButton.addEventListener('touchend', (e) => {
             e.preventDefault();
@@ -51,6 +53,44 @@ class VoiceAvatarApp {
         
         this.micButton.addEventListener('contextmenu', (e) => e.preventDefault());
         this.stopButton.addEventListener('click', () => this.disconnectAvatar());
+    }
+    
+    async handleMicrophonePress() {
+        // Only initialize LiveKit once, not on every microphone press
+        if (!this.liveKitInitialized && !this.liveKitReady) {
+            await this.initializeLiveKitOnUserGesture();
+        }
+        
+        // Always start recording regardless of LiveKit status
+        await this.startRecording();
+    }
+    
+    async initializeLiveKitOnUserGesture() {
+        console.log('🎬 Initializing LiveKit on user gesture...');
+        this.liveKitInitialized = true;
+        
+        // Check if LiveKit is loaded
+        if (window.LiveKitReady && typeof LiveKit !== 'undefined') {
+            this.onLiveKitReady();
+        } else {
+            // Wait for LiveKit to load
+            this.updateStatus('🔄 Loading LiveKit...');
+            let attempts = 0;
+            const maxAttempts = 50; // 5 seconds
+            
+            const checkLiveKit = () => {
+                attempts++;
+                if (window.LiveKitReady && typeof LiveKit !== 'undefined') {
+                    this.onLiveKitReady();
+                } else if (attempts < maxAttempts) {
+                    setTimeout(checkLiveKit, 100);
+                } else {
+                    this.onLiveKitFailed();
+                }
+            };
+            
+            checkLiveKit();
+        }
     }
     
     onLiveKitReady() {
@@ -65,22 +105,9 @@ class VoiceAvatarApp {
     }
     
     async setupLiveKitConnection() {
-        console.log('🔧 DEBUG: setupLiveKitConnection started');
-        console.log('🔧 DEBUG: window.LiveKitReady:', window.LiveKitReady);
-        console.log('🔧 DEBUG: typeof LiveKit:', typeof LiveKit);
-        console.log('🔧 DEBUG: typeof window.LiveKit:', typeof window.LiveKit);
-        console.log('🔧 DEBUG: LiveKit object:', window.LiveKit);
+        console.log('🔧 Setting up LiveKit connection...');
         
         // Check what LiveKit-related objects exist
-        const liveKitProps = Object.keys(window).filter(key => key.toLowerCase().includes('livekit'));
-        console.log('🔧 DEBUG: LiveKit-related window properties:', liveKitProps);
-        
-        // Check for specific LiveKit objects that might exist
-        console.log('🔧 DEBUG: window.Room:', typeof window.Room);
-        console.log('🔧 DEBUG: window.RoomEvent:', typeof window.RoomEvent);
-        console.log('🔧 DEBUG: window.Track:', typeof window.Track);
-        
-        // Let's try a different approach - see if we can find the LiveKit objects
         let LiveKitLib = null;
         if (typeof LiveKit !== 'undefined') {
             LiveKitLib = LiveKit;
@@ -97,19 +124,17 @@ class VoiceAvatarApp {
                 Track: window.Track
             };
         }
-        
-        console.log('🔧 DEBUG: LiveKitLib found:', !!LiveKitLib);
-        console.log('🔧 DEBUG: LiveKitLib object:', LiveKitLib);
+       
+        console.log('🔧 LiveKitLib found:', !!LiveKitLib);
         
         if (!this.liveKitReady || !LiveKitLib) {
-            console.log('❌ DEBUG: LiveKit not ready or undefined');
+            console.log('❌ LiveKit not ready or undefined');
             this.updateStatus('⚠️ LiveKit not available');
             return;
         }
         
         try {
             this.updateStatus('🔄 Connecting to Live Avatar...');
-            console.log('🔧 DEBUG: About to fetch room credentials');
             
             // Get room credentials from Flask backend
             const response = await fetch('http://localhost:5001/create-hedra-room', {
@@ -118,35 +143,28 @@ class VoiceAvatarApp {
                 body: JSON.stringify({ session_id: this.sessionId })
             });
             
-            console.log('🔧 DEBUG: Fetch response status:', response.status);
-            console.log('🔧 DEBUG: Fetch response ok:', response.ok);
-            
             if (!response.ok) {
                 const errorData = await response.json();
-                console.log('❌ DEBUG: Response not ok, error data:', errorData);
                 throw new Error(`Failed to create room: ${response.status} - ${errorData.error || 'Unknown error'}`);
             }
             
             const roomData = await response.json();
-            console.log('🔧 DEBUG: Room data received:', roomData);
             
             if (roomData.success) {
                 console.log('🎬 Room data received:', roomData);
                 await this.connectToLiveKitRoom(roomData);
             } else {
-                console.log('❌ DEBUG: Room data success=false:', roomData);
                 throw new Error(`Room creation failed: ${roomData.error || 'Unknown error'}`);
             }
             
         } catch (error) {
-            console.error('❌ DEBUG: LiveKit setup failed with error:', error);
-            console.error('❌ DEBUG: Error stack:', error.stack);
+            console.error('❌ LiveKit setup failed:', error);
             this.updateStatus('⚠️ Using audio fallback mode');
         }
     }
     
     async connectToLiveKitRoom(roomData) {
-        console.log('🔧 DEBUG: connectToLiveKitRoom started with data:', roomData);
+        console.log('🔧 Connecting to LiveKit room...');
         
         try {
             // Try to access LiveKit from global scope or window
@@ -167,21 +185,22 @@ class VoiceAvatarApp {
                 };
             }
             
-            console.log('🔧 DEBUG: LiveKitLib found:', !!LiveKitLib);
-            
             if (!LiveKitLib) {
                 throw new Error('LiveKit library not found in global scope');
             }
             
             const { Room, RoomEvent, Track } = LiveKitLib;
-            console.log('🔧 DEBUG: LiveKit destructured successfully');
-            console.log('🔧 DEBUG: Room:', !!Room, 'RoomEvent:', !!RoomEvent, 'Track:', !!Track);
             
             this.liveKitRoom = new Room({
                 adaptiveStream: true,
                 dynacast: true,
             });
-            console.log('🔧 DEBUG: LiveKit Room created');
+            
+            // CRITICAL FIX: Resume AudioContext after user gesture
+            if (this.liveKitRoom.audioContext && this.liveKitRoom.audioContext.state === 'suspended') {
+                console.log('🔊 Resuming AudioContext after user gesture...');
+                await this.liveKitRoom.audioContext.resume();
+            }
             
             // Set up event listeners BEFORE connecting
             this.liveKitRoom.on(RoomEvent.Connected, () => {
@@ -220,11 +239,6 @@ class VoiceAvatarApp {
                     (participant.identity.includes('agent') || participant.identity.includes('hedra'))) {
                     
                     console.log('🎥 Avatar video track received!');
-                    console.log('📋 Track details:', {
-                        dimensions: track.dimensions,
-                        source: track.source,
-                        sid: track.sid
-                    });
                     
                     try {
                         // Attach the track to a video element
@@ -293,18 +307,17 @@ class VoiceAvatarApp {
             });
             
             // Connect to the room
-            console.log('🔗 DEBUG: About to connect to LiveKit room...', {
+            console.log('🔗 Connecting to LiveKit room...', {
                 url: roomData.livekit_url,
                 room: roomData.room_name
             });
             
             await this.liveKitRoom.connect(roomData.livekit_url, roomData.user_token);
             
-            console.log('✅ DEBUG: LiveKit room connection established');
+            console.log('✅ LiveKit room connection established');
             
         } catch (error) {
-            console.error('❌ DEBUG: Error in connectToLiveKitRoom:', error);
-            console.error('❌ DEBUG: Error stack:', error.stack);
+            console.error('❌ Error in connectToLiveKitRoom:', error);
             this.updateStatus('⚠️ Connection failed - using audio fallback');
         }
     }
