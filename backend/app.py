@@ -61,7 +61,7 @@ def process_voice():
         # Transcribe audio
         print("🔊 Starting transcription...")
         transcript = openai_service.transcribe_audio_sync(audio_file)
-        
+       
         if not transcript:
             return jsonify({"error": "Failed to transcribe audio"}), 500
         

@@ -250,8 +250,8 @@ class VoiceAvatarApp {
                             display: block !important;
                             width: 100%;
                             height: 100%;
-                            object-fit: cover;
-                            border-radius: 50%;
+                            object-fit: contain;
+                            border-radius: 16px;
                             position: absolute;
                             top: 0;
                             left: 0;
@@ -313,6 +313,55 @@ class VoiceAvatarApp {
             });
             
             await this.liveKitRoom.connect(roomData.livekit_url, roomData.user_token);
+            
+            // AUDIO FIX: Resume AudioContext after user gesture
+            try {
+                if (this.liveKitRoom.audioContext) {
+                    if (this.liveKitRoom.audioContext.state === 'suspended') {
+                        console.log('🔊 Resuming AudioContext...');
+                        await this.liveKitRoom.audioContext.resume();
+                        console.log('✅ AudioContext resumed');
+                    }
+                }
+                
+                // Also enable audio on video elements
+                const videoElements = document.querySelectorAll('video');
+                videoElements.forEach(video => {
+                    video.muted = false;
+                    video.volume = 1.0;
+                });
+                
+            } catch (error) {
+                console.log('⚠️ Audio setup warning:', error);
+            }
+            
+            // 🎤 NEW: PUBLISH YOUR MICROPHONE TO THE ROOM
+            try {
+                console.log('🎤 Publishing microphone to LiveKit room...');
+                
+                // Get user's microphone
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        sampleRate: 44100,
+                        channelCount: 1,
+                        echoCancellation: true,
+                        noiseSuppression: true
+                    }
+                });
+                
+                // Publish the microphone track to the room
+                const audioTrack = new window.LivekitClient.LocalAudioTrack(stream.getAudioTracks()[0]);
+                await this.liveKitRoom.localParticipant.publishTrack(audioTrack);
+                
+                console.log('✅ Microphone published to LiveKit room');
+                console.log('🎤 Agent should now be able to hear you!');
+                this.avatarConnected = true; // Mark avatar as connected
+                
+            } catch (error) {
+                console.error('❌ Failed to publish microphone:', error);
+                console.log('💡 Avatar will work but agent won\'t hear you');
+                this.avatarConnected = false;
+            }
             
             console.log('✅ LiveKit room connection established');
             
@@ -395,6 +444,20 @@ class VoiceAvatarApp {
                 return;
             }
             
+            // 🎯 NEW: Skip Flask processing if avatar is connected
+            if (this.avatarConnected) {
+                console.log('🎬 Avatar is active - agent should handle speech directly');
+                console.log('💡 If you don\'t hear a response, the agent is processing your speech');
+                this.updateStatus('🎬 Agent processing speech...');
+                
+                // Just wait a bit and reset status
+                setTimeout(() => {
+                    this.updateStatus('✅ Ready to listen');
+                }, 3000);
+                return;
+            }
+            
+            // Rest of your existing processRecording code for fallback mode...
             const audioBlob = new Blob(this.audioChunks, { type: 'audio/wav' });
             
             const formData = new FormData();
@@ -418,19 +481,7 @@ class VoiceAvatarApp {
             this.addMessage(data.transcript, 'user');
             this.addMessage(data.response, 'bot');
             
-            // If avatar is connected, the agent will automatically speak
-            // Otherwise, use audio fallback
-            if (this.avatarConnected) {
-                this.updateStatus('🎬 Avatar speaking...');
-                this.setSpeaking(true);
-                
-                // Estimate speaking duration and reset indicator
-                const estimatedDuration = Math.max(data.response.split(' ').length * 0.6, 2); // minimum 2 seconds
-                setTimeout(() => {
-                    this.setSpeaking(false);
-                    this.updateStatus('✅ Ready to listen');
-                }, estimatedDuration * 1000);
-            } else if (data.audio) {
+            if (data.audio) {
                 await this.playAudioResponse(data.audio);
             } else {
                 this.updateStatus('✅ Ready to listen');

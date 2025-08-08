@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from livekit import agents
-from livekit.agents import JobContext, AgentSession, Agent, RoomOutputOptions, stt
+from livekit.agents import JobContext, AgentSession, Agent, RoomOutputOptions, RoomInputOptions, stt
 from livekit.plugins import openai, hedra, silero, elevenlabs
 from dotenv import load_dotenv
 import os
@@ -64,6 +64,10 @@ async def entrypoint(ctx: JobContext):
         await session.start(
             agent=agent,
             room=ctx.room,
+            room_input_options=RoomInputOptions(
+                # CRITICAL: Enable audio input from room participants
+                audio_enabled=True
+            ),
             room_output_options=RoomOutputOptions(
                 # CRITICAL: Disable audio output to room - avatar handles this
                 audio_enabled=False,
@@ -109,7 +113,11 @@ async def start_audio_only_agent(ctx: JobContext):
             instructions="You are a helpful AI assistant. Keep responses brief and friendly for voice interaction."
         )
         
-        await session.start(agent=agent, room=ctx.room)
+        await session.start(
+            agent=agent, 
+            room=ctx.room,
+            room_input_options=RoomInputOptions(audio_enabled=True)
+        )
         logger.info("✅ Audio-only agent started as fallback")
         logger.info("🔊 Users will hear OpenAI TTS responses")
         
